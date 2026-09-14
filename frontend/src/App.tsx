@@ -21,7 +21,7 @@ function AppContent() {
 
   if (user) {
     return (
-      <div className="app">
+      <div className="app app-wide">
         <Dashboard />
       </div>
     );
