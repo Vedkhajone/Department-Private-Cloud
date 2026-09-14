@@ -1,0 +1,24 @@
+# Environment
+.env
+
+# Node / frontend
+node_modules/
+dist/
+
+# Python / backend
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log
+
+# Uploaded user files (bind-mounted storage, dev default location)
+storage-data/
