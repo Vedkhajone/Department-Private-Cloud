@@ -31,12 +31,26 @@ class Settings:
             os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")
         )
 
-        # Default storage limit (in MB) assigned to newly registered
-        # students. Not enforced anywhere yet -- storage itself is a
-        # later phase -- but recorded on the user from day one.
-        self.default_storage_limit_mb: int = int(
-            os.getenv("DEFAULT_STORAGE_LIMIT_MB", "1024")
+        # File storage configuration.
+        #
+        # STORAGE_ROOT is a path *inside the backend container*. Docker
+        # Compose mounts a persistent host directory there (see
+        # docker-compose.yml / STORAGE_HOST_PATH) so files survive
+        # container restarts and `docker compose down` / `up`.
+        self.storage_root: str = os.getenv("STORAGE_ROOT", "/cloud-data")
+
+        # Default storage quota assigned to newly registered students,
+        # in bytes. Stored on the user as `storage_limit` (megabytes,
+        # for readability) and converted back to bytes wherever quota
+        # math happens -- see app/storage/service.py.
+        self.default_storage_quota_bytes: int = int(
+            os.getenv("DEFAULT_STORAGE_QUOTA_BYTES", str(10 * 1024**3))  # 10 GB
         )
+
+    @property
+    def default_storage_limit_mb(self) -> int:
+        """Default per-user quota, in megabytes, derived from the bytes setting."""
+        return self.default_storage_quota_bytes // (1024 * 1024)
 
     @property
     def database_url(self) -> str:

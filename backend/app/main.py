@@ -10,7 +10,7 @@ file only assembles them.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, users
+from app.api import auth, files, folders, storage, users
 from app.config import settings
 
 app = FastAPI(title="Department Engineering Cloud API")
@@ -27,6 +27,9 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(folders.router)
+app.include_router(files.router)
+app.include_router(storage.router)
 
 
 @app.get("/")
