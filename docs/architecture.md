@@ -3,12 +3,13 @@
 This document explains the current technical foundation of the Department
 Engineering Cloud (DECP) platform, in plain language.
 
-As of Phase 2, the platform has its first real feature: authentication
-and user management (registration, login, JWT-protected endpoints, and
-basic role-based access control for `student` / `faculty` / `admin`).
-File storage, project hosting, and the admin dashboard are still future
-phases. See [`docs/database.md`](./database.md) for details on the
-`users` table, password hashing, and the authentication flow.
+As of Phase 3, the platform has authentication and user management
+(registration, login, JWT-protected endpoints, role-based access
+control) plus personal cloud storage (upload/download, folders,
+rename, delete, per-user quotas). Project hosting and the admin
+dashboard are still future phases. See [`docs/database.md`](./database.md)
+for details on the database tables, password hashing, the
+authentication flow, and how file storage is architected.
 
 ## 1. What each service does
 
@@ -20,11 +21,14 @@ The platform is split into four containers, each with one job:
 - **frontend** — a React + TypeScript app (built with Vite) that renders
   the web page you see, including login/registration/dashboard, and talks
   to the backend over HTTP.
-- **backend** — a FastAPI (Python) application that exposes an API: a
-  health check, and now `/api/auth/*` and `/api/users/*` for
-  authentication and user data.
-- **postgres** — a PostgreSQL database. It now stores the `users` table
-  (see `docs/database.md`), created and versioned through Alembic
+- **backend** — a FastAPI (Python) application that exposes an API:
+  a health check, `/api/auth/*` and `/api/users/*` for authentication,
+  and now `/api/folders/*`, `/api/files/*`, and `/api/storage/usage`
+  for personal cloud storage. It also reads and writes uploaded files
+  on a persistent storage directory (see section 10 below).
+- **postgres** — a PostgreSQL database. It stores the `users`,
+  `folders`, and `files` tables (see `docs/database.md`) — metadata
+  only, never file contents — created and versioned through Alembic
   migrations rather than by hand.
 
 ## 2. How Docker Compose connects the services
@@ -124,16 +128,30 @@ The backend is split by responsibility instead of living in one file:
 
 ```
 backend/app/
-├── main.py           # assembles the FastAPI app and routers
-├── config.py         # reads all settings from environment variables
-├── db/database.py    # SQLAlchemy engine, session, declarative Base
-├── models/user.py    # ORM model -- the users table's structure
-├── schemas/user.py   # Pydantic request/response shapes (API contract)
-├── api/auth.py        # POST /api/auth/register, /login
-├── api/users.py        # GET /api/users/me, and a role-protected example
-└── auth/
-    ├── security.py     # password hashing, JWT create/decode
-    └── dependencies.py # get_current_user, require_role
+├── main.py             # assembles the FastAPI app and routers
+├── config.py           # reads all settings from environment variables
+├── db/database.py      # SQLAlchemy engine, session, declarative Base
+├── models/
+│   ├── user.py          # users table
+│   ├── folder.py         # folders table (logical grouping only)
+│   └── file.py            # files table (metadata only, no file bytes)
+├── schemas/
+│   ├── user.py           # user request/response shapes
+│   ├── folder.py          # folder request/response shapes
+│   ├── file.py             # file request/response shapes
+│   └── storage.py          # storage usage response shape
+├── api/
+│   ├── auth.py            # POST /api/auth/register, /login
+│   ├── users.py            # GET /api/users/me, and a role-protected example
+│   ├── folders.py           # /api/folders/* endpoints
+│   ├── files.py              # /api/files/* endpoints
+│   └── storage.py             # GET /api/storage/usage
+├── auth/
+│   ├── security.py         # password hashing, JWT create/decode
+│   └── dependencies.py      # get_current_user, require_role
+└── storage/
+    ├── paths.py             # safe on-disk path resolution (no user input touches paths)
+    └── service.py            # folder/file business logic: ownership, quota, CRUD
 ```
 
 This separation means, for example, that the users *table* (`models`)
@@ -162,3 +180,49 @@ Request:   Authorization: Bearer <JWT> → verified → user identified
 Full detail -- including exactly what's in the token, how role checks
 work, and why passwords are hashed rather than encrypted -- is in
 [`docs/database.md`](./database.md).
+
+## 10. Personal cloud storage architecture
+
+```
+PostgreSQL                          Filesystem (STORAGE_ROOT)
+-----------                         --------------------------
+folders table                       (no mirror -- folders are
+  (logical hierarchy only)           purely a database concept)
+
+files table                         STORAGE_ROOT/users/<user_id>/<uuid>
+  name = "essay.docx"      ------->   actual file bytes live here,
+  storage_path = "<uuid>"             named by a random UUID, not by
+                                       the display name
+```
+
+The database stores **metadata** (names, folder hierarchy, size, who
+owns what); the filesystem stores **file contents**. The two are linked
+only by `files.storage_path`, an opaque, server-generated identifier
+-- never a user-supplied name or path. This is also why renaming a
+file is instant and never touches disk: only the database row changes.
+
+**Where files actually live:** Docker Compose mounts a host directory
+(`STORAGE_HOST_PATH`, e.g. `./storage-data` in development) into the
+backend container at `STORAGE_ROOT` (`/cloud-data`). Files are never
+stored inside the Docker image or an ephemeral container filesystem,
+so they survive container restarts and `docker compose down` / `up`
+the same way the Postgres volume does. Moving to the department server
+means changing only `STORAGE_HOST_PATH` in `.env` to a real, durable
+path on that machine -- no code changes.
+
+**Path safety:** every physical path is built from two trusted,
+server-controlled values only -- the authenticated user's numeric id
+and a randomly generated UUID -- and `app/storage/paths.py` double-
+checks the resolved path never escapes `STORAGE_ROOT` before it's
+used. A file or folder's *display name* (which a user does control)
+is validated (no `/`, `\`, null bytes, `.`/`..`) but never becomes part
+of a filesystem path in the first place, so path traversal isn't
+merely blocked -- there's no path derived from user input to traverse
+with.
+
+**Quota:** each user has a `storage_limit` (stored in the `users`
+table, in megabytes; see `docs/database.md`). Every upload recalculates
+the user's current usage from the `files` table and rejects the
+upload (`413`) if it would exceed the quota -- checked both before
+writing (using existing usage) and while streaming (so a single huge
+upload can't blow past the limit before the check catches up).
