@@ -9,7 +9,7 @@ belongs in app/schemas/user.py.
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -48,6 +48,13 @@ class User(Base):
     # later phase) but recorded so the schema doesn't need to change
     # when storage is implemented.
     storage_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=1024)
+
+    # Admin-controlled account enable/disable (Phase 5). A disabled
+    # account is rejected at login and on every subsequent
+    # authenticated request (see app/auth/dependencies.py), so
+    # disabling takes effect immediately even for an already-issued
+    # token.
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

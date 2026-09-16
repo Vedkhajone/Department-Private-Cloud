@@ -22,6 +22,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.admin.audit import record as record_audit
 from app.models.file import File
 from app.models.folder import Folder
 from app.models.user import User
@@ -145,6 +146,10 @@ def create_folder(db: Session, user: User, name: str, parent_folder_id: int | No
             detail="A folder with this name already exists here",
         )
     db.refresh(folder)
+    record_audit(
+        db, actor_id=user.id, action="folder.create", resource_type="folder",
+        resource_id=folder.id, description=f'Created folder "{clean_name}"',
+    )
     return folder
 
 
@@ -192,8 +197,13 @@ def delete_folder(db: Session, user: User, folder_id: int) -> None:
             detail="Folder is not empty. Delete its contents before deleting the folder.",
         )
 
+    folder_id_val, folder_name = folder.id, folder.name
     db.delete(folder)
     db.commit()
+    record_audit(
+        db, actor_id=user.id, action="folder.delete", resource_type="folder",
+        resource_id=folder_id_val, description=f'Deleted folder "{folder_name}"',
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +313,10 @@ def save_uploaded_file(
         raise
 
     db.refresh(file_row)
+    record_audit(
+        db, actor_id=user.id, action="file.upload", resource_type="file",
+        resource_id=file_row.id, description=f'Uploaded file "{display_name}" ({bytes_written} bytes)',
+    )
     return file_row
 
 
@@ -360,7 +374,12 @@ def delete_file(db: Session, user: User, file_id: int) -> None:
     # fails partway, the result is an orphaned file on disk (harmless,
     # cleanable later) rather than a database row pointing at a file
     # that no longer exists (which would break downloads).
+    file_id_val, file_name = file_row.id, file_row.name
     db.delete(file_row)
     db.commit()
 
     path.unlink(missing_ok=True)
+    record_audit(
+        db, actor_id=user.id, action="file.delete", resource_type="file",
+        resource_id=file_id_val, description=f'Deleted file "{file_name}"',
+    )

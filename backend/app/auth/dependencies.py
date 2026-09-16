@@ -54,6 +54,15 @@ def get_current_user(
     if user is None:
         raise credentials_error
 
+    if not user.is_active:
+        # A disabled account is rejected immediately, even with an
+        # already-issued, still-unexpired token -- disabling takes
+        # effect on the very next request, not just on the next login.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been disabled",
+        )
+
     return user
 
 
@@ -76,3 +85,10 @@ def require_role(*allowed_roles: UserRole):
         return user
 
     return role_checker
+
+
+# Every /api/admin/* endpoint depends on this -- see app/api/admin.py.
+# A thin, named wrapper around require_role so the intent is obvious
+# at each call site and there is exactly one place that defines "what
+# counts as an admin" for API access.
+require_admin = require_role(UserRole.admin)

@@ -77,6 +77,37 @@ class Settings:
         # to reverse-proxy to it -- see app/deploy/containers.py.
         self.backend_container_name: str = os.getenv("BACKEND_CONTAINER_NAME", "decp-backend")
 
+        # Admin dashboard configuration (Phase 5).
+        #
+        # How often a system_metrics sample is taken (see
+        # app/admin/metrics.py) and how long samples are kept before
+        # being pruned, so the table doesn't grow forever.
+        self.metrics_sample_interval_seconds: int = int(
+            os.getenv("METRICS_SAMPLE_INTERVAL_SECONDS", "60")
+        )
+        self.metrics_retention_days: int = int(os.getenv("METRICS_RETENTION_DAYS", "14"))
+
+        # Storage usage thresholds (percent of total department
+        # storage) used to color the admin storage-health indicator.
+        self.storage_warning_percent: float = float(
+            os.getenv("STORAGE_WARNING_PERCENT", "70")
+        )
+        self.storage_critical_percent: float = float(
+            os.getenv("STORAGE_CRITICAL_PERCENT", "85")
+        )
+
+        # Names of the DECP-managed containers whose logs an admin may
+        # view (see app/admin/service.py) -- a fixed allowlist, never a
+        # client-supplied name, so this can never be used to read logs
+        # from an arbitrary container on the host.
+        self.core_service_containers: dict[str, str] = {
+            "backend": self.backend_container_name,
+            "nginx": os.getenv("NGINX_CONTAINER_NAME", "department-engineering-cloud-nginx-1"),
+            "postgres": os.getenv(
+                "POSTGRES_CONTAINER_NAME", "department-engineering-cloud-postgres-1"
+            ),
+        }
+
     @property
     def default_storage_limit_mb(self) -> int:
         """Default per-user quota, in megabytes, derived from the bytes setting."""

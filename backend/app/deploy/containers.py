@@ -200,6 +200,96 @@ def remove_container_and_network(website_id: str, container_id: str | None) -> N
         pass
 
 
+def list_managed_containers() -> list[dict]:
+    """
+    List every container DECP created for a dynamic website (name
+    prefix "decp-site-"). Used only by the admin dashboard -- never
+    lists arbitrary host containers, since the filter is a fixed
+    prefix DECP itself controls, not a client-supplied value.
+    """
+    client = _get_client()
+    containers = client.containers.list(all=True, filters={"name": "decp-site-"})
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "status": c.status,
+            "image": (c.image.tags[0] if c.image.tags else c.image.short_id),
+        }
+        for c in containers
+    ]
+
+
+def _calculate_cpu_percent(stats: dict) -> float:
+    try:
+        cpu_delta = (
+            stats["cpu_stats"]["cpu_usage"]["total_usage"]
+            - stats["precpu_stats"]["cpu_usage"]["total_usage"]
+        )
+        system_delta = (
+            stats["cpu_stats"]["system_cpu_usage"] - stats["precpu_stats"]["system_cpu_usage"]
+        )
+        online_cpus = stats["cpu_stats"].get("online_cpus") or len(
+            stats["cpu_stats"]["cpu_usage"].get("percpu_usage") or [1]
+        )
+        if system_delta > 0 and cpu_delta > 0:
+            return (cpu_delta / system_delta) * online_cpus * 100.0
+    except (KeyError, TypeError, ZeroDivisionError):
+        pass
+    return 0.0
+
+
+def container_stats(container_id: str) -> dict | None:
+    """
+    A single non-streaming CPU/memory snapshot for one container, or
+    None if it no longer exists. Not running is a normal, healthy
+    result (a stopped website) -- reported as zeroed-out usage rather
+    than an error.
+    """
+    client = _get_client()
+    try:
+        container = client.containers.get(container_id)
+    except NotFound:
+        return None
+
+    if container.status != "running":
+        return {"status": container.status, "cpu_percent": 0.0, "memory_bytes": 0, "memory_limit_bytes": 0}
+
+    try:
+        raw = container.stats(stream=False)
+    except APIError:
+        return {"status": container.status, "cpu_percent": 0.0, "memory_bytes": 0, "memory_limit_bytes": 0}
+
+    memory_stats = raw.get("memory_stats", {})
+    return {
+        "status": container.status,
+        "cpu_percent": _calculate_cpu_percent(raw),
+        "memory_bytes": memory_stats.get("usage", 0),
+        "memory_limit_bytes": memory_stats.get("limit", 0),
+    }
+
+
+def core_service_status(name: str) -> str:
+    """
+    "running" / "not-found" / a Docker status string for one of
+    DECP's own core containers (see settings.core_service_containers
+    -- a fixed, server-side name mapping, never a client-supplied
+    container name).
+    """
+    client = _get_client()
+    try:
+        return client.containers.get(name).status
+    except NotFound:
+        return "not-found"
+
+
+def docker_available() -> bool:
+    try:
+        return bool(_get_client().ping())
+    except Exception:
+        return False
+
+
 def remove_image(tag: str) -> None:
     client = _get_client()
     try:

@@ -6,11 +6,12 @@ field is never accepted from the request body, so there is no way for
 a client to request `faculty` or `admin` through this endpoint.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.admin.audit import record as record_audit
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.config import settings
 from app.db.database import get_db
@@ -20,8 +21,12 @@ from app.schemas.user import TokenResponse, UserLoginRequest, UserOut, UserRegis
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _client_ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register(payload: UserRegisterRequest, db: Session = Depends(get_db)) -> User:
+def register(payload: UserRegisterRequest, request: Request, db: Session = Depends(get_db)) -> User:
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing is not None:
         raise HTTPException(
@@ -62,11 +67,17 @@ def register(payload: UserRegisterRequest, db: Session = Depends(get_db)) -> Use
         )
     db.refresh(user)
 
+    record_audit(
+        db, actor_id=user.id, action="auth.register", resource_type="user",
+        resource_id=user.id, description=f"Registered account {user.email}",
+        ip_address=_client_ip(request),
+    )
+
     return user
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: UserLoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def login(payload: UserLoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
     user = db.query(User).filter(User.email == payload.email).first()
 
     # Use one generic error for both "no such user" and "wrong password"
@@ -78,10 +89,31 @@ def login(payload: UserLoginRequest, db: Session = Depends(get_db)) -> TokenResp
     )
 
     if user is None:
+        record_audit(
+            db, actor_id=None, action="auth.login_failure",
+            description=f"Login failed for unknown email {payload.email}",
+            ip_address=_client_ip(request),
+        )
         raise invalid_credentials
 
     if not verify_password(payload.password, user.password_hash):
+        record_audit(
+            db, actor_id=user.id, action="auth.login_failure",
+            description=f"Incorrect password for {user.email}",
+            ip_address=_client_ip(request),
+        )
         raise invalid_credentials
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been disabled. Contact an administrator.",
+        )
+
+    record_audit(
+        db, actor_id=user.id, action="auth.login_success",
+        description=f"{user.email} logged in", ip_address=_client_ip(request),
+    )
 
     access_token = create_access_token(
         subject=str(user.id), extra_claims={"role": user.role.value}

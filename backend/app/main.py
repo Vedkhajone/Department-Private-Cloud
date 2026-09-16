@@ -7,14 +7,17 @@ response shapes in app/schemas, and auth logic in app/auth -- this
 file only assembles them.
 """
 
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, files, folders, public_sites, storage, users, websites
+from app.admin.metrics import start_sampler
+from app.api import admin, auth, files, folders, public_sites, storage, users, websites
 from app.config import settings
 from app.deploy.service import reconnect_all_dynamic_websites
 
-app = FastAPI(title="Department Engineering Cloud API")
+app = FastAPI(title="ECE DeptCloud API")
 
 
 @app.on_event("startup")
@@ -29,6 +32,16 @@ def _reconnect_dynamic_website_networks() -> None:
     redeployed).
     """
     reconnect_all_dynamic_websites()
+
+
+@app.on_event("startup")
+async def _start_metrics_sampler() -> None:
+    """
+    Launches the periodic system-metrics sampler (app/admin/metrics.py)
+    as a background asyncio task for the lifetime of the process --
+    powers the admin dashboard's server health history graphs.
+    """
+    asyncio.create_task(start_sampler())
 
 # CORS is permissive for local development only. This should be
 # tightened once the frontend is served exclusively through NGINX
@@ -48,13 +61,14 @@ app.include_router(storage.router)
 app.include_router(websites.router)
 app.include_router(public_sites.sites_router)
 app.include_router(public_sites.apps_router)
+app.include_router(admin.router)
 
 
 @app.get("/")
 def read_root() -> dict:
     """Basic root endpoint, useful for a manual sanity check."""
     return {
-        "message": "Department Engineering Cloud backend is running",
+        "message": "ECE DeptCloud backend is running",
         "environment": settings.environment,
     }
 

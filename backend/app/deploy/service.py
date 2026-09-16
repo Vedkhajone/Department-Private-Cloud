@@ -26,6 +26,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.admin.audit import record as record_audit
 from app.config import settings
 from app.db.database import SessionLocal
 from app.deploy import containers
@@ -153,6 +154,12 @@ def deploy_website(
     db.commit()
     db.refresh(website)
 
+    record_audit(
+        db, actor_id=user.id, action="website.deploy", resource_type="website",
+        resource_id=website.id,
+        description=f'Deployed website "{clean_name}" ({site_type.value}/{framework.value})',
+    )
+
     if site_type == WebsiteType.static:
         try:
             final_dir = website_storage_dir(user.id, website.id)
@@ -264,6 +271,10 @@ def restart_website(db: Session, user: User, website_id: uuid.UUID) -> Website:
     website.status = WebsiteStatus.online
     db.commit()
     db.refresh(website)
+    record_audit(
+        db, actor_id=user.id, action="website.restart", resource_type="website",
+        resource_id=website.id, description=f'Restarted website "{website.name}"',
+    )
     return website
 
 
@@ -305,6 +316,7 @@ def reconnect_all_dynamic_websites() -> None:
 
 def delete_website(db: Session, user: User, website_id: uuid.UUID) -> None:
     website = get_owned_website(db, user, website_id)
+    website_id_val, website_name = website.id, website.name
     website.status = WebsiteStatus.deleting
     db.commit()
 
@@ -317,3 +329,7 @@ def delete_website(db: Session, user: User, website_id: uuid.UUID) -> None:
 
     db.delete(website)
     db.commit()
+    record_audit(
+        db, actor_id=user.id, action="website.delete", resource_type="website",
+        resource_id=website_id_val, description=f'Deleted website "{website_name}"',
+    )
