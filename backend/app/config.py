@@ -47,6 +47,36 @@ class Settings:
             os.getenv("DEFAULT_STORAGE_QUOTA_BYTES", str(10 * 1024**3))  # 10 GB
         )
 
+        # Website hosting configuration (Phase 4).
+        #
+        # Websites live under STORAGE_ROOT/websites/ -- a namespace
+        # separate from personal files (STORAGE_ROOT/users/), so the
+        # two kinds of data never mix and can be limited independently.
+        self.max_website_zip_size_bytes: int = int(
+            os.getenv("MAX_WEBSITE_ZIP_SIZE_BYTES", str(200 * 1024**2))  # 200 MB
+        )
+        self.max_website_extracted_size_bytes: int = int(
+            os.getenv("MAX_WEBSITE_EXTRACTED_SIZE_BYTES", str(500 * 1024**2))  # 500 MB
+        )
+        self.max_website_files: int = int(os.getenv("MAX_WEBSITE_FILES", "5000"))
+        self.max_websites_per_user: int = int(os.getenv("MAX_WEBSITES_PER_USER", "5"))
+
+        # Resource limits applied to every dynamic website's container.
+        # Kept modest by default -- this runs on one shared department
+        # machine, not a dedicated cluster.
+        self.container_cpu_limit: float = float(os.getenv("CONTAINER_CPU_LIMIT", "1.0"))
+        self.container_memory_limit_mb: int = int(os.getenv("CONTAINER_MEMORY_LIMIT_MB", "512"))
+        self.container_pids_limit: int = int(os.getenv("CONTAINER_PIDS_LIMIT", "100"))
+        self.docker_build_timeout_seconds: int = int(
+            os.getenv("DOCKER_BUILD_TIMEOUT_SECONDS", "300")
+        )
+
+        # The backend's own container name, set via `container_name` in
+        # docker-compose.yml. Needed so the backend can connect itself
+        # to each dynamic website's dedicated Docker network in order
+        # to reverse-proxy to it -- see app/deploy/containers.py.
+        self.backend_container_name: str = os.getenv("BACKEND_CONTAINER_NAME", "decp-backend")
+
     @property
     def default_storage_limit_mb(self) -> int:
         """Default per-user quota, in megabytes, derived from the bytes setting."""

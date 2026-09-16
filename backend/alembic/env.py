@@ -16,7 +16,7 @@ from sqlalchemy import engine_from_config, pool
 # app's own settings/Base instead of redefining the DB URL here.
 from app.config import settings
 from app.db.database import Base
-from app.models import file, folder, user  # noqa: F401  (ensures models are registered)
+from app.models import file, folder, user, website  # noqa: F401  (ensures models are registered)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

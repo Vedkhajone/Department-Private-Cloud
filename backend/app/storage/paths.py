@@ -25,7 +25,7 @@ from app.config import settings
 STORAGE_ROOT = Path(settings.storage_root).resolve()
 
 
-def _ensure_inside_storage_root(path: Path) -> Path:
+def ensure_inside_storage_root(path: Path) -> Path:
     """Raise if `path` does not resolve to somewhere inside STORAGE_ROOT."""
     resolved = path.resolve()
     if resolved != STORAGE_ROOT and STORAGE_ROOT not in resolved.parents:
@@ -42,7 +42,7 @@ def user_storage_dir(user_id: int) -> Path:
     used for path traversal. The containment check is still applied as
     defense in depth.
     """
-    user_dir = _ensure_inside_storage_root(STORAGE_ROOT / "users" / str(int(user_id)))
+    user_dir = ensure_inside_storage_root(STORAGE_ROOT / "users" / str(int(user_id)))
     user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir
 
@@ -62,7 +62,7 @@ def physical_file_path(user_id: int, storage_filename: str) -> Path:
     directly inside the owning user's storage directory.
     """
     user_dir = user_storage_dir(user_id)
-    path = _ensure_inside_storage_root(user_dir / storage_filename)
+    path = ensure_inside_storage_root(user_dir / storage_filename)
 
     if path.parent != user_dir:
         # storage_filename is always a bare uuid4 hex string with no
