@@ -1,6 +1,8 @@
 import { useState } from "react";
 
+import { ThemeToggle } from "./components/ThemeToggle";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import { Dashboard } from "./pages/Dashboard";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
@@ -13,22 +15,21 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="app">
+      <div className="auth-page">
         <p>Loading...</p>
       </div>
     );
   }
 
   if (user) {
-    return (
-      <div className="app app-wide">
-        <Dashboard />
-      </div>
-    );
+    return <Dashboard />;
   }
 
   return (
-    <div className="app">
+    <div className="auth-page">
+      <div className="auth-page-toggle">
+        <ThemeToggle />
+      </div>
       {view === "login" ? (
         <Login onSwitchToRegister={() => setView("register")} />
       ) : (
@@ -40,9 +41,11 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

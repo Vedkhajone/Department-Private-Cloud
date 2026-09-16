@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { Cloud } from "lucide-react";
 
 import { ApiError } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -25,7 +26,15 @@ export function Login({ onSwitchToRegister }: { onSwitchToRegister: () => void }
 
   return (
     <div className="auth-card">
-      <h1>Department Engineering Cloud</h1>
+      <div className="auth-brand">
+        <span className="brand-icon">
+          <Cloud size={20} />
+        </span>
+        <div>
+          <div className="brand-name">DECP</div>
+          <div className="brand-subtitle">Department Engineering Cloud</div>
+        </div>
+      </div>
       <h2>Log In</h2>
 
       <form onSubmit={handleSubmit}>
@@ -51,7 +60,7 @@ export function Login({ onSwitchToRegister }: { onSwitchToRegister: () => void }
 
         {error && <p className="form-error">{error}</p>}
 
-        <button type="submit" disabled={isSubmitting}>
+        <button type="submit" className="btn btn-primary btn-block" disabled={isSubmitting}>
           {isSubmitting ? "Logging in..." : "Login"}
         </button>
       </form>

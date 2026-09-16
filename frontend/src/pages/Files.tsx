@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
+import { Folder, FolderPlus, Upload as UploadIcon } from "lucide-react";
 
 import { ApiError } from "../api/client";
 import {
@@ -6,7 +7,6 @@ import {
   deleteFile,
   deleteFolder,
   downloadFile,
-  getStorageUsage,
   listFiles,
   listFolders,
   renameFile,
@@ -14,8 +14,8 @@ import {
   uploadFile,
   type FileItem,
   type FolderItem,
-  type StorageUsage,
 } from "../api/storage";
+import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../context/AuthContext";
 
 interface Crumb {
@@ -32,36 +32,34 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * A minimal "My Files" manager: folder navigation via a breadcrumb
- * trail, file/folder listing, upload, new folder, rename, delete,
- * download, and a storage usage indicator. Kept simple and functional
- * rather than visually elaborate, per the Phase 3 brief.
+ * "My Files": folder navigation via a breadcrumb trail, file/folder
+ * listing, upload, new folder, rename, delete, download. Storage
+ * usage lives in its own card on the dashboard (components/StorageCard)
+ * -- this section only manages the file tree itself.
  */
 export function Files() {
   const { token } = useAuth();
   const [path, setPath] = useState<Crumb[]>([{ id: null, name: "My Files" }]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [usage, setUsage] = useState<StorageUsage | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const currentFolderId = path[path.length - 1].id;
+  const atRoot = path.length === 1;
 
   const refresh = useCallback(async () => {
     if (!token) return;
     setIsLoading(true);
     setError(null);
     try {
-      const [folderList, fileList, usageData] = await Promise.all([
+      const [folderList, fileList] = await Promise.all([
         listFolders(token, currentFolderId),
         listFiles(token, currentFolderId),
-        getStorageUsage(token),
       ]);
       setFolders(folderList);
       setFiles(fileList);
-      setUsage(usageData);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load files");
     } finally {
@@ -147,54 +145,61 @@ export function Files() {
     }
   }
 
-  const usagePercent = usage ? Math.min(100, (usage.used_bytes / usage.quota_bytes) * 100) : 0;
+  const isEmpty = folders.length === 0 && files.length === 0;
 
   return (
-    <div className="files-card">
-      <div className="files-header">
-        <h2>My Files</h2>
-        {usage && (
-          <div className="usage-bar-wrap">
-            <div className="usage-bar">
-              <div className="usage-bar-fill" style={{ width: `${usagePercent}%` }} />
-            </div>
-            <span className="usage-text">
-              {formatBytes(usage.used_bytes)} of {formatBytes(usage.quota_bytes)} used
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="breadcrumbs">
-        {path.map((crumb, index) => (
-          <span key={crumb.id ?? "root"}>
-            {index > 0 && <span className="crumb-sep"> / </span>}
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => goToCrumb(index)}
-              disabled={index === path.length - 1}
-            >
-              {crumb.name}
-            </button>
+    <div className="card section-card">
+      <div className="section-header">
+        <div className="section-header-title">
+          <span className="section-icon accent-blue">
+            <Folder size={18} />
           </span>
-        ))}
+          <div>
+            <h3>My Files</h3>
+            <p>Your personal cloud storage</p>
+          </div>
+        </div>
+
+        <div className="section-header-actions">
+          <button type="button" className="btn btn-secondary" onClick={handleNewFolder}>
+            <FolderPlus size={15} /> New Folder
+          </button>
+          <label className="btn btn-primary">
+            <UploadIcon size={15} />
+            {isUploading ? "Uploading..." : "Upload"}
+            <input type="file" onChange={handleUpload} disabled={isUploading} hidden />
+          </label>
+        </div>
       </div>
 
-      <div className="files-toolbar">
-        <button type="button" onClick={handleNewFolder}>
-          New Folder
-        </button>
-        <label className="upload-button">
-          {isUploading ? "Uploading..." : "Upload"}
-          <input type="file" onChange={handleUpload} disabled={isUploading} hidden />
-        </label>
-      </div>
+      {!atRoot && (
+        <div className="breadcrumbs">
+          {path.map((crumb, index) => (
+            <span key={crumb.id ?? "root"}>
+              {index > 0 && <span className="crumb-sep">/</span>}
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => goToCrumb(index)}
+                disabled={index === path.length - 1}
+              >
+                {crumb.name}
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {error && <p className="form-error">{error}</p>}
 
       {isLoading ? (
-        <p>Loading...</p>
+        <p className="section-loading">Loading...</p>
+      ) : isEmpty ? (
+        <EmptyState
+          icon={<Folder size={28} />}
+          title="This folder is empty"
+          description="Upload files or create a new folder to get started."
+        />
       ) : (
         <ul className="file-list">
           {folders.map((folder) => (
@@ -204,7 +209,7 @@ export function Files() {
                 className="link-button file-name"
                 onClick={() => openFolder(folder)}
               >
-                📁 {folder.name}
+                <Folder size={16} className="file-row-icon" /> {folder.name}
               </button>
               <span className="file-actions">
                 <button type="button" onClick={() => handleRenameFolder(folder)}>
@@ -235,10 +240,6 @@ export function Files() {
               </span>
             </li>
           ))}
-
-          {folders.length === 0 && files.length === 0 && (
-            <li className="file-row empty-row">This folder is empty.</li>
-          )}
         </ul>
       )}
     </div>
