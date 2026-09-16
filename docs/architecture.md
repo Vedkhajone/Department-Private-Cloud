@@ -3,13 +3,16 @@
 This document explains the current technical foundation of the Department
 Engineering Cloud (DECP) platform, in plain language.
 
-As of Phase 3, the platform has authentication and user management
-(registration, login, JWT-protected endpoints, role-based access
-control) plus personal cloud storage (upload/download, folders,
-rename, delete, per-user quotas). Project hosting and the admin
-dashboard are still future phases. See [`docs/database.md`](./database.md)
-for details on the database tables, password hashing, the
-authentication flow, and how file storage is architected.
+As of Phase 4, the platform has authentication and user management,
+personal cloud storage, and **Universal Website Hosting & Deployment**
+-- students can upload a ZIP and get a live static site or a running
+Flask/FastAPI/Node.js app, each isolated in its own Docker container.
+The admin dashboard is still a future phase. See
+[`docs/database.md`](./database.md) for the database tables and
+authentication/storage flows, and
+[`docs/WEBSITE-HOSTING.md`](./WEBSITE-HOSTING.md) for the full website
+hosting architecture (this document only summarizes it in section 11
+below).
 
 ## 1. What each service does
 
@@ -23,13 +26,16 @@ The platform is split into four containers, each with one job:
   to the backend over HTTP.
 - **backend** — a FastAPI (Python) application that exposes an API:
   a health check, `/api/auth/*` and `/api/users/*` for authentication,
-  and now `/api/folders/*`, `/api/files/*`, and `/api/storage/usage`
-  for personal cloud storage. It also reads and writes uploaded files
-  on a persistent storage directory (see section 10 below).
+  `/api/folders/*`, `/api/files/*`, and `/api/storage/usage` for
+  personal cloud storage, and now `/api/websites/*` for website
+  hosting/deployment plus the public `/sites/*` and `/apps/*` routes
+  that actually serve deployed websites. It also talks to the Docker
+  daemon (via a socket mounted only into this container) to build and
+  run isolated containers for dynamic websites.
 - **postgres** — a PostgreSQL database. It stores the `users`,
-  `folders`, and `files` tables (see `docs/database.md`) — metadata
-  only, never file contents — created and versioned through Alembic
-  migrations rather than by hand.
+  `folders`, `files`, and `websites` tables (see `docs/database.md`)
+  — metadata only, never file contents — created and versioned through
+  Alembic migrations rather than by hand.
 
 ## 2. How Docker Compose connects the services
 
@@ -51,8 +57,11 @@ Browser
   │
   ▼
 NGINX (port 8080 on your machine → port 80 in the container)
-  ├── "/"      → forwarded to the frontend container (React app)
-  └── "/api/*" → forwarded to the backend container (FastAPI)
+  ├── "/"        → forwarded to the frontend container (React app)
+  ├── "/api/*"   → forwarded to the backend container (FastAPI)
+  ├── "/sites/*" → forwarded to the backend (serves static websites)
+  └── "/apps/*"  → forwarded to the backend (proxies to dynamic
+                    websites' isolated containers)
 ```
 
 Your browser only ever talks to NGINX. It never connects to the FastAPI
@@ -149,10 +158,23 @@ backend/app/
 ├── auth/
 │   ├── security.py         # password hashing, JWT create/decode
 │   └── dependencies.py      # get_current_user, require_role
-└── storage/
-    ├── paths.py             # safe on-disk path resolution (no user input touches paths)
-    └── service.py            # folder/file business logic: ownership, quota, CRUD
+├── storage/
+│   ├── paths.py             # safe on-disk path resolution (no user input touches paths)
+│   └── service.py            # folder/file business logic: ownership, quota, CRUD
+└── deploy/                    # website hosting (Phase 4)
+    ├── paths.py                # safe on-disk path resolution for websites
+    ├── zip_safety.py            # safe ZIP validation/extraction
+    ├── slug.py                   # server-generated, unique URL slugs
+    ├── detection.py                # deterministic static/dynamic framework detection
+    ├── builder.py                   # DECP-controlled Dockerfile templates
+    ├── containers.py                 # Docker SDK: build/run/stop/remove containers+networks
+    └── service.py                     # deployment orchestration, ownership, lifecycle
 ```
+
+`api/websites.py` (management: deploy/list/start/stop/restart/logs/
+delete) and `api/public_sites.py` (the public `/sites/*` and `/apps/*`
+routes that actually serve a website) sit alongside the other routers
+in `api/`.
 
 This separation means, for example, that the users *table* (`models`)
 can change independently of what the *API* exposes (`schemas`) -- the
@@ -226,3 +248,37 @@ the user's current usage from the `files` table and rejects the
 upload (`413`) if it would exceed the quota -- checked both before
 writing (using existing usage) and while streaming (so a single huge
 upload can't blow past the limit before the check catches up).
+
+## 11. Website hosting architecture (summary)
+
+Full detail is in [`docs/WEBSITE-HOSTING.md`](./WEBSITE-HOSTING.md).
+In short:
+
+```
+ZIP upload
+   │
+   ▼
+Safe extraction (reject traversal/absolute paths/symlinks, size/count limits)
+   │
+   ▼
+Deterministic detection: static (HTML or built React/Vite) vs.
+dynamic (Flask/FastAPI/Node.js) -- no AI/LLM involved
+   │
+   ├── static  → files moved into STORAGE_ROOT/websites/<user>/<id>/
+   │             served directly by the backend at /sites/<slug>
+   │
+   └── dynamic → DECP-controlled Dockerfile generated (a student's own
+                 Dockerfile, if any, is never used) → image built →
+                 an isolated container started on its own dedicated
+                 Docker network → reachable at /apps/<slug>, proxied
+                 by the backend to the container by name (never via a
+                 published host port)
+```
+
+Dynamic containers get no Docker socket, no host filesystem mount, no
+DECP secrets, and their own network with no route to Postgres or to
+any other student's container -- see WEBSITE-HOSTING.md's "Security
+model" section for the complete picture. A Docker build can take a
+while, so it runs as a background task after the API responds
+immediately with `status: "building"`; the frontend polls until it
+becomes `online` (or `failed`, with a reason).

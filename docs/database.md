@@ -126,11 +126,12 @@ This matters for two reasons:
   `backend/alembic/versions/`, so you can see exactly how the database
   evolved, and roll a change back if needed.
 
-Two migrations exist so far: `create users table` (Phase 2) and `add
-folders and files tables` (Phase 3). Each was generated with `alembic
-revision --autogenerate` and applied with `alembic upgrade head` --
-see the README for exact commands. The Phase 3 migration only adds new
-tables; it does not modify the existing `users` migration.
+Three migrations exist so far: `create users table` (Phase 2), `add
+folders and files tables` (Phase 3), and `add websites table` (Phase
+4). Each was generated with `alembic revision --autogenerate` and
+applied with `alembic upgrade head` -- see the README for exact
+commands. Each new migration only adds its own tables; none of them
+modify an earlier migration.
 
 ## Password hashing
 
@@ -270,6 +271,41 @@ a check could be forgotten. A file/folder belonging to another user
 looks exactly like one that doesn't exist (`404`), so the API never
 confirms or denies another user's file exists.
 
+## The `websites` table
+
+| Column          | Type                                                 | Notes |
+|-----------------|-------------------------------------------------------|-------|
+| `id`            | UUID, primary key                                      | Unlike other tables, a UUID -- website ids are exposed in the API/URLs, so a non-sequential id is preferable |
+| `owner_id`      | integer, FK → `users.id`                                | Always the authenticated user; never client-supplied |
+| `name`          | string                                                   | Display name the student chose |
+| `slug`          | string, unique                                            | URL-safe identifier, always server-generated from `name` -- see below |
+| `type`          | enum: `static` / `dynamic`                                 | |
+| `framework`     | enum: `html` / `react` / `flask` / `fastapi` / `node`        | |
+| `status`        | enum: `pending`/`building`/`online`/`stopped`/`failed`/`deleting` | |
+| `storage_path`  | string, nullable                                            | Relative identifier under `STORAGE_ROOT/websites/<owner_id>/` |
+| `container_id`  | string, nullable                                              | Dynamic websites only |
+| `internal_port` | integer, nullable                                              | The fixed port the app listens on *inside* its container (never published to the host) |
+| `public_url`    | string, nullable                                                | Relative path, e.g. `/sites/my-portfolio` -- never a hardcoded host |
+| `error_message` | text, nullable                                                   | Set when `status = failed`, explaining why |
+| `created_at`, `updated_at` | timestamp (with timezone)                             | |
+
+**Why `slug` is always server-generated:** a client never supplies a
+slug directly -- it's derived from `name` (lowercased, non-alphanumeric
+characters replaced with `-`) and checked for uniqueness, appending a
+short random suffix on collision (`app/deploy/slug.py`). This is what
+guarantees a slug can never be used for path traversal or to collide
+with a route the app itself owns (a small reserved list -- `api`,
+`sites`, `apps`, etc. -- is rejected and suffixed too).
+
+**Why `owner_id` is trustworthy:** exactly like `folders`/`files`, it's
+set from the authenticated JWT user on the server side -- the deploy
+endpoint has no `owner_id` field a client could populate, so "a student
+deploys a website as someone else" is not expressible through the API.
+
+See [`docs/WEBSITE-HOSTING.md`](./WEBSITE-HOSTING.md) for the full
+deployment architecture, Docker isolation model, and NGINX routing
+built on top of this table.
+
 ## What's intentionally not built yet
 
 - Refresh tokens / token revocation (a logout only clears the token on
@@ -282,5 +318,9 @@ confirms or denies another user's file exists.
   rather than silently deleting everything inside it).
 - A materialized/cached storage usage counter (currently recalculated
   from `files.size` on every request).
+- Persistent/queued background deployments -- a backend restart mid-
+  build loses that one in-flight deployment (see WEBSITE-HOSTING.md).
+- Egress network restrictions and per-container disk quotas for
+  dynamic websites (see WEBSITE-HOSTING.md's "Known limitations").
 
 These are all reasonable, separate future phases.

@@ -16,6 +16,10 @@ services:
 
   backend:
     build: ./backend
+    # Fixed, predictable name -- app/deploy/containers.py uses this so
+    # it can connect the backend to each dynamic website's dedicated
+    # Docker network (BACKEND_CONTAINER_NAME below must match).
+    container_name: decp-backend
     restart: unless-stopped
     environment:
       SERVICE_NAME: ${SERVICE_NAME}
@@ -30,12 +34,30 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       STORAGE_ROOT: ${STORAGE_ROOT}
       DEFAULT_STORAGE_QUOTA_BYTES: ${DEFAULT_STORAGE_QUOTA_BYTES}
+      MAX_WEBSITE_ZIP_SIZE_BYTES: ${MAX_WEBSITE_ZIP_SIZE_BYTES}
+      MAX_WEBSITE_EXTRACTED_SIZE_BYTES: ${MAX_WEBSITE_EXTRACTED_SIZE_BYTES}
+      MAX_WEBSITE_FILES: ${MAX_WEBSITE_FILES}
+      MAX_WEBSITES_PER_USER: ${MAX_WEBSITES_PER_USER}
+      CONTAINER_CPU_LIMIT: ${CONTAINER_CPU_LIMIT}
+      CONTAINER_MEMORY_LIMIT_MB: ${CONTAINER_MEMORY_LIMIT_MB}
+      CONTAINER_PIDS_LIMIT: ${CONTAINER_PIDS_LIMIT}
+      DOCKER_BUILD_TIMEOUT_SECONDS: ${DOCKER_BUILD_TIMEOUT_SECONDS}
+      BACKEND_CONTAINER_NAME: decp-backend
     volumes:
-      # Persists uploaded files on the host, outside the container/image.
-      # STORAGE_HOST_PATH is the host-side path (change it on the
-      # department server, e.g. to /cloud-data); STORAGE_ROOT above is
-      # where the backend sees it inside the container.
+      # Persists uploaded files AND hosted websites on the host,
+      # outside the container/image. STORAGE_HOST_PATH is the
+      # host-side path (change it on the department server, e.g. to
+      # /cloud-data); STORAGE_ROOT above is where the backend sees it
+      # inside the container. Personal files live under STORAGE_ROOT/
+      # users/, hosted websites under STORAGE_ROOT/websites/ -- see
+      # docs/database.md and docs/WEBSITE-HOSTING.md.
       - ${STORAGE_HOST_PATH}:${STORAGE_ROOT}
+      # Lets the backend (only -- never a student container) talk to
+      # the host's Docker daemon, to build images and run/stop/remove
+      # containers for dynamic website deployments. See
+      # app/deploy/containers.py and docs/WEBSITE-HOSTING.md, "Security
+      # model", for exactly what this is and is not used for.
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
