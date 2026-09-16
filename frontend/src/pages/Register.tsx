@@ -44,8 +44,8 @@ export function Register({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
           <Cloud size={20} />
         </span>
         <div>
-          <div className="brand-name">DECP</div>
-          <div className="brand-subtitle">Department Engineering Cloud</div>
+          <div className="brand-name">ECE DeptCloud</div>
+          <div className="brand-subtitle">The ECE Department Private Cloud</div>
         </div>
       </div>
       <h2>Register</h2>

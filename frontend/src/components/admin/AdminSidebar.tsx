@@ -1,19 +1,32 @@
-import { Cloud, Folder, Globe, LayoutDashboard, LogOut, Settings as SettingsIcon } from "lucide-react";
+import {
+  Cloud,
+  FileClock,
+  Globe,
+  HardDrive,
+  LayoutDashboard,
+  LogOut,
+  Server,
+  Settings as SettingsIcon,
+  Users,
+} from "lucide-react";
 
-import type { User } from "../api/auth";
-import type { DashboardView } from "../types";
+import type { User } from "../../api/auth";
+import type { AdminView } from "../../types";
 
-interface SidebarProps {
-  activeView: DashboardView;
-  onNavigate: (view: DashboardView) => void;
+interface AdminSidebarProps {
+  activeView: AdminView;
+  onNavigate: (view: AdminView) => void;
   onLogout: () => void;
   user: User;
 }
 
-const NAV_ITEMS: { view: DashboardView; label: string; icon: typeof LayoutDashboard }[] = [
-  { view: "overview", label: "Dashboard", icon: LayoutDashboard },
-  { view: "files", label: "My Files", icon: Folder },
-  { view: "websites", label: "My Websites", icon: Globe },
+const NAV_ITEMS: { view: AdminView; label: string; icon: typeof LayoutDashboard }[] = [
+  { view: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { view: "users", label: "Users", icon: Users },
+  { view: "storage", label: "Storage", icon: HardDrive },
+  { view: "websites", label: "Websites", icon: Globe },
+  { view: "system", label: "System", icon: Server },
+  { view: "activity", label: "Activity Logs", icon: FileClock },
   { view: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -21,7 +34,7 @@ function initial(name: string): string {
   return (name.trim()[0] || "?").toUpperCase();
 }
 
-export function Sidebar({ activeView, onNavigate, onLogout, user }: SidebarProps) {
+export function AdminSidebar({ activeView, onNavigate, onLogout, user }: AdminSidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -53,7 +66,7 @@ export function Sidebar({ activeView, onNavigate, onLogout, user }: SidebarProps
           <span className="avatar avatar-neutral">{initial(user.name)}</span>
           <div>
             <div className="sidebar-user-name">{user.name}</div>
-            <div className="sidebar-user-role">{user.role}</div>
+            <div className="sidebar-user-role">Administrator</div>
           </div>
         </div>
         <button type="button" className="sidebar-logout" onClick={onLogout}>

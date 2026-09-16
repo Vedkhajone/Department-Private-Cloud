@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { AdminApp } from "./pages/AdminApp";
 import { Dashboard } from "./pages/Dashboard";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
@@ -22,7 +23,11 @@ function AppContent() {
   }
 
   if (user) {
-    return <Dashboard />;
+    // The backend is the real authority here (every /api/admin/*
+    // route independently enforces role === admin) -- this branch is
+    // only about which UI to render, never a security boundary on its
+    // own. See docs/ADMIN-DASHBOARD.md.
+    return user.role === "admin" ? <AdminApp /> : <Dashboard />;
   }
 
   return (
