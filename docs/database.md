@@ -19,6 +19,7 @@ filesystem. See "Personal cloud storage" below.
 | `password_hash` | string                        | Never the plaintext password -- see below     |
 | `role`          | enum: `student`/`faculty`/`admin` | Defaults to `student`                     |
 | `storage_limit` | integer (MB)                  | The user's personal storage quota, enforced on every upload (see below) |
+| `is_active`     | boolean                       | Added in Phase 5; admin-controlled account enable/disable -- see below |
 | `created_at`    | timestamp (with timezone)     | Set automatically on insert                   |
 
 **Primary key**: `id`, a plain auto-incrementing integer. It's simple,
@@ -126,12 +127,16 @@ This matters for two reasons:
   `backend/alembic/versions/`, so you can see exactly how the database
   evolved, and roll a change back if needed.
 
-Three migrations exist so far: `create users table` (Phase 2), `add
-folders and files tables` (Phase 3), and `add websites table` (Phase
-4). Each was generated with `alembic revision --autogenerate` and
-applied with `alembic upgrade head` -- see the README for exact
-commands. Each new migration only adds its own tables; none of them
-modify an earlier migration.
+Four migrations exist so far: `create users table` (Phase 2), `add
+folders and files tables` (Phase 3), `add websites table` (Phase 4),
+and `add admin dashboard: audit_logs, system_metrics, users.is_active`
+(Phase 5). Each was generated with `alembic revision --autogenerate`
+and applied with `alembic upgrade head` -- see the README for exact
+commands. Each new migration only adds its own tables/columns; none of
+them modify an earlier migration's own changes (the Phase 5 migration
+adds a column to the existing `users` table, which is expected --
+Alembic captures that as `users.is_active`, cleanly separate from
+what the `create users table` migration itself does).
 
 ## Password hashing
 
@@ -306,13 +311,50 @@ See [`docs/WEBSITE-HOSTING.md`](./WEBSITE-HOSTING.md) for the full
 deployment architecture, Docker isolation model, and NGINX routing
 built on top of this table.
 
+## The `audit_logs` table (Phase 5)
+
+| Column          | Type                          | Notes |
+|-----------------|-------------------------------|-------|
+| `id`            | integer, primary key          | |
+| `actor_id`      | integer, FK → `users.id`, nullable | Who did it; `NULL` for a few actor-less events (e.g. a failed login against an unknown email) |
+| `action`        | string                        | A short fixed code, e.g. `website.deploy`, `file.delete` |
+| `resource_type` | string, nullable              | e.g. `website`, `file`, `folder`, `user` |
+| `resource_id`   | string, nullable              | The affected row's id (kept as text since ids vary in type -- integer for users/files, UUID for websites) |
+| `description`   | text, nullable                | Human-readable summary shown in the admin UI |
+| `ip_address`    | string, nullable              | Captured where cheap to (register/login); `NULL` elsewhere |
+| `created_at`    | timestamp (with timezone)     | |
+
+Answers "who did what" -- see
+[`docs/ADMIN-DASHBOARD.md`](./ADMIN-DASHBOARD.md) for exactly which
+actions are recorded and why, and for the guarantee that a row can
+never contain a password, JWT, or file content (there's exactly one
+function that writes this table, and none of its call sites ever pass
+those values to it).
+
+## The `system_metrics` table (Phase 5)
+
+| Column             | Type                     | Notes |
+|--------------------|--------------------------|-------|
+| `id`               | integer, primary key     | |
+| `timestamp`        | timestamp (with timezone)| When this sample was taken |
+| `cpu_percent`      | float                    | |
+| `memory_percent`   | float                    | |
+| `disk_percent`     | float                    | Of the filesystem backing `STORAGE_ROOT` |
+| `network_rx_bytes` | bigint                   | Cumulative bytes received since boot |
+| `network_tx_bytes` | bigint                   | Cumulative bytes sent since boot |
+
+Answers "what was the server doing at time T" -- no per-user or
+per-action information lives here (that's `audit_logs`). A background
+task takes one sample per `METRICS_SAMPLE_INTERVAL_SECONDS` (default
+60s) and prunes rows older than `METRICS_RETENTION_DAYS` (default 14
+days) -- see `docs/ADMIN-DASHBOARD.md`, "Server health & metrics."
+
 ## What's intentionally not built yet
 
 - Refresh tokens / token revocation (a logout only clears the token on
   the client -- the JWT itself remains technically valid until it
   expires, which is acceptable for this phase's short expiry window).
 - Email verification, password reset, OAuth/social login.
-- A full admin API for managing users, and the admin dashboard itself.
 - Moving/copying a file or folder between folders (rename only, for now).
 - Recursive folder deletion (deleting a non-empty folder is refused
   rather than silently deleting everything inside it).

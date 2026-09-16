@@ -3,16 +3,17 @@
 This document explains the current technical foundation of the Department
 Engineering Cloud (DECP) platform, in plain language.
 
-As of Phase 4, the platform has authentication and user management,
-personal cloud storage, and **Universal Website Hosting & Deployment**
--- students can upload a ZIP and get a live static site or a running
-Flask/FastAPI/Node.js app, each isolated in its own Docker container.
-The admin dashboard is still a future phase. See
-[`docs/database.md`](./database.md) for the database tables and
-authentication/storage flows, and
+As of Phase 5, the platform has authentication and user management,
+personal cloud storage, **Universal Website Hosting & Deployment**
+(students upload a ZIP and get a live static site or a running
+Flask/FastAPI/Node.js app, each isolated in its own Docker container),
+and an **Admin & System Management Dashboard** for `role = admin`
+accounts. See [`docs/database.md`](./database.md) for the database
+tables and authentication/storage flows,
 [`docs/WEBSITE-HOSTING.md`](./WEBSITE-HOSTING.md) for the full website
-hosting architecture (this document only summarizes it in section 11
-below).
+hosting architecture, and [`docs/ADMIN-DASHBOARD.md`](./ADMIN-DASHBOARD.md)
+for the admin console (this document only summarizes both in sections
+11-12 below).
 
 ## 1. What each service does
 
@@ -27,15 +28,19 @@ The platform is split into four containers, each with one job:
 - **backend** — a FastAPI (Python) application that exposes an API:
   a health check, `/api/auth/*` and `/api/users/*` for authentication,
   `/api/folders/*`, `/api/files/*`, and `/api/storage/usage` for
-  personal cloud storage, and now `/api/websites/*` for website
+  personal cloud storage, `/api/websites/*` for website
   hosting/deployment plus the public `/sites/*` and `/apps/*` routes
-  that actually serve deployed websites. It also talks to the Docker
-  daemon (via a socket mounted only into this container) to build and
-  run isolated containers for dynamic websites.
+  that actually serve deployed websites, and now `/api/admin/*` for
+  the admin dashboard (users, storage, websites, server health,
+  containers, audit logs — every route requires `role = admin`). It
+  also talks to the Docker daemon (via a socket mounted only into this
+  container) to build and run isolated containers for dynamic
+  websites, and periodically samples server resource metrics.
 - **postgres** — a PostgreSQL database. It stores the `users`,
-  `folders`, `files`, and `websites` tables (see `docs/database.md`)
-  — metadata only, never file contents — created and versioned through
-  Alembic migrations rather than by hand.
+  `folders`, `files`, `websites`, `audit_logs`, and `system_metrics`
+  tables (see `docs/database.md`) — metadata only, never file contents
+  — created and versioned through Alembic migrations rather than by
+  hand.
 
 ## 2. How Docker Compose connects the services
 
@@ -282,3 +287,37 @@ model" section for the complete picture. A Docker build can take a
 while, so it runs as a background task after the API responds
 immediately with `status: "building"`; the frontend polls until it
 becomes `online` (or `failed`, with a reason).
+
+## 12. Admin dashboard architecture (summary)
+
+Full detail is in [`docs/ADMIN-DASHBOARD.md`](./ADMIN-DASHBOARD.md).
+In short: a separate console (`AdminApp`, rendered instead of the
+student dashboard when `user.role === "admin"`) backed by
+`/api/admin/*`, where every single route requires `role = admin` via
+the same `require_role` mechanism already used elsewhere:
+
+```
+JWT → get_current_user → require_admin (role == admin) → endpoint
+```
+
+It reuses existing infrastructure rather than adding new services:
+
+- **Server health/metrics** — `psutil` (CPU/RAM/disk/network), sampled
+  periodically by a background asyncio task into a new
+  `system_metrics` table for the history graphs.
+- **Service health** — real checks (a DB round-trip, an HTTP call to
+  NGINX, a Docker ping, a disk-usage call), not a hardcoded "all
+  healthy" list.
+- **Storage/website/user reporting** — SQL aggregates over the
+  existing `users`/`files`/`folders`/`websites` tables; nothing new to
+  store there.
+- **Container management** — the same `app/deploy/containers.py`
+  Docker SDK functions Phase 4 already built (stop/restart/logs),
+  scoped to only the containers DECP itself created.
+- **Audit logging** — a new `audit_logs` table, written through one
+  function (`app/admin/audit.py:record`) called from the existing
+  auth/storage/website services, never from the frontend directly.
+
+No Kubernetes, Prometheus, Grafana, Celery, or Redis -- everything
+above runs on the same FastAPI + PostgreSQL + Docker + NGINX stack the
+rest of DECP already uses.
