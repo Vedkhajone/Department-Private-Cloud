@@ -1,5 +1,6 @@
 import { useAuth } from "../context/AuthContext";
 import { Files } from "./Files";
+import { Websites } from "./Websites";
 
 export function Dashboard() {
   const { user, logout } = useAuth();
@@ -35,6 +36,7 @@ export function Dashboard() {
       </div>
 
       <Files />
+      <Websites />
     </>
   );
 }
