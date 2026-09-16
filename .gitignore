@@ -1,5 +1,8 @@
 # Environment
 .env
+# frontend/.env holds no secrets (just the app version for the
+# footer) -- track it like any other source file.
+!frontend/.env
 
 # Node / frontend
 node_modules/
